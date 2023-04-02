@@ -1,0 +1,663 @@
+---
+title: "RL parte 2"
+author: "Thais Lovisi"
+date: "2023-03-02"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+pacotes <- c("plotly","tidyverse","ggrepel","fastDummies","knitr","kableExtra",
+             "splines","reshape2","PerformanceAnalytics","correlation","see",
+             "ggraph","psych","nortest","rgl","car","ggside","tidyquant","olsrr",
+             "jtools","ggstance","magick","cowplot","emojifont","beepr","Rcpp",
+             "equatiomatic", "metan")
+
+options(rgl.debug = TRUE)
+
+if(sum(as.numeric(!pacotes %in% installed.packages())) != 0){
+  instalador <- pacotes[!pacotes %in% installed.packages()]
+  for(i in 1:length(instalador)) {
+    install.packages(instalador, dependencies = T)
+    break()}
+  sapply(pacotes, require, character = T) 
+} else {
+  sapply(pacotes, require, character = T) 
+}
+
+
+```
+
+# REGRESSÃO NÃO LINEAR SIMPLES E TRANSFORMAÇÃO DE BOX-COX  
+
+### Knowing my data
+
+```{r}
+load(file = "bebes.RData")
+glimpse(bebes)
+```
+```{r}
+#Descriptive stats
+summary(bebes)
+```
+##### About this data set
+
+This  data set contains 74 observations and 2 variables, the variables are comprimento in cm (height in cm) and idade (age) of babys given in week. The goal of this exercise is create a model to predict the desired comprimento of a baby with certain age. Thus, we want to create a model with idade as predictor variable (X), and comprimento as our dependent variable (Y).  
+
+#### Dispersion Chart
+
+Chart with the compriment according with the idade. The function Ggplotly() construct an interactive chart.
+
+```{r}
+# Dispersion Chart
+ggplotly(
+  ggplot(bebes, aes(x= idade, y = comprimento))+
+    geom_point(color = "darkolivegreen1", alpha = 0.2, size = 2)+ # alpha is the crhonbach alpha
+    labs(x = "Age in weeks",
+         y = "Height in cm") +
+  theme_radar_dark()
+)
+
+```
+
+<br> Visualy is possible to verify that the chart has a non-linear function, in this case logaritmic. However, is necessary to compare with an Non-Linear model.
+<br>\\n To do so we can use loess as a method (method = "loess"), when creating the geom_smooth. Loess means locally estimated scater smooth (gráfico de dispersão estimado localmente com suavização). It is a type of Polinomial regression. 
+
+
+```{r}
+#Dispersion Chart with linear fit
+ggplotly(
+  bebes %>%
+    ggplot()+
+      geom_point(aes(x= idade, y = comprimento), color = "darkolivegreen1", alpha = 0.2, size = 2 )+
+        geom_smooth(aes(x= idade, y = comprimento),
+                    color = "dodgerblue1",
+                    method = "lm",
+                    formula = y ~ x, se = F)+ #se = F remove confidence interval
+    geom_smooth(aes(x = idade, y = comprimento), 
+                color = "#FFBBED",
+                method = "loess",
+                formula = y ~ x,
+                se = F)+
+      labs(x = "Age in weeks",
+           y = "Height in cm")+
+        theme_radar_dark()
+    )
+
+
+```
+<br> From the previous Chart, in blue we have the Linear model and in pink the Non-Linear model. In this example R2loess > R2linear, in this way is possible indication that a Non-Linear model is more adequate to this data set.
+
+### Estimating Linear model
+
+```{r}
+model_lin_bebes <- lm(formula = comprimento ~ idade, data = bebes) # y ~ x modelo que nos de a equação y
+model_lin_bebes
+```
+<br> For the calculated linear model β = 0.9411 and α = 43.1004.
+
+```{r}
+summary(model_lin_bebes)
+```
+
+<br> At the descriptive Descriptive statistics we have that β and α are statistically significant, thus H0 is rejected and β is statistically significant for the explanation of the behavior of Y. ***Note that:*** The R2 = 0.9013 and is a good value however, a Non-Linear model creation still important to confirm if there will be a better fit.
+
+### Testing the Residual`s adeherence to the Normality
+
+<br><br>The non adherence to the normality of the error terms can indicate that the model was specified incorrectly as to its functional form and there was an omission of relevant explanatory variables. So as to correct this problem, the mathematical formula can be altered, or new explanatory variables could be included in the model.
+<br><br>Exist a range of different tests to be applied to verify the normality adeherence. The most commons are:
+<br>Shapiro-Wilk test is appropriate for small samples (those with up to 30 observations), 
+<br>Shapiro-Francia test is more recommended for large sample.
+<br><br>As we are dealing with a big data (>30 samples) set we choose conduct the Shapiro-Francia test. Where we have the hipotesis:
+<br>
+<br>*H0*:there is a adeherence to the normality (sample has been generated from a normal distribution)
+<br>*H1*:there is no adeherence to the normality (sample not generated from a normal distribution)
+<br>
+<br>Where differently from other tests H0: p_val≥0,05 adere a normalidade. 
+```{r}
+sf.test(model_lin_bebes$residuals)
+```
+<br> Note that by the shapiro-Francia test, for the linear model model_lin_bebes H0 os rejected, so there is no adeherence to the normality.
+
+##### Histogram
+
+```{r}
+bebes %>%
+  mutate(residuos = model_lin_bebes$residuals) %>%
+  ggplot(aes(x = residuos))+
+  geom_histogram(aes(y = ..density..), 
+                 color = "magenta2", 
+                 fill = "violet", 
+                 bins = 30,
+                 alpha = 0.6) +
+  stat_function(fun = dnorm, 
+                args = list(mean = mean(model_lin_bebes$residuals),
+                            sd = sd(model_lin_bebes$residuals)),
+                aes(color = "Curva Normal Teórica"),
+                size = 2) +
+  scale_color_manual("Legenda:",
+                     values = "dodgerblue1") +
+  labs(x = "Resíduos",
+       y = "Frequência") +
+  theme(panel.background = element_rect("white"),
+        panel.grid = element_line("lightblue1"),
+        panel.border = element_rect(NA),
+        legend.position = "bottom")
+```
+
+<br>Após rodar o histograma model_lin_bebes é possivel observar as diferenças não são est iguais a 0. Ou seja não são significantes.
+
+##### Behavior of the residuals as a function of the fitted values for model_lin_bebes, with emphasis on the distributions of the variables 
+
+<br>The package 'ggside' is required.
+
+```{r}
+bebes %>%
+  ggplot(aes(x = model_lin_bebes$fitted.values, y = model_lin_bebes$residuals)) +
+  geom_point(color = "gold1", size = 2.5) +
+  geom_smooth(aes(color = "Fitted Values"),
+              method = "lm", formula = y ~ x, se = F, size = 2) +
+  geom_xsidedensity(aes(y = after_stat(density)),
+                    alpha = 0.5,
+                    size = 1,
+                    position = "stack") +
+  geom_ysidedensity(aes(x = after_stat(density)),
+                    alpha = 0.5,
+                    size = 1,
+                    position = "stack") +
+  xlab("Fitted Values") +
+  ylab("Resíduos") +
+  scale_color_tq() +
+  scale_fill_tq() +
+  theme_tq() +
+  theme(ggside.panel.scale.x = 0.4,
+        ggside.panel.scale.y = 0.4)
+```
+<br> Shows the relation between residuals and fitted values. Na lateral esquerda a curva normal.
+
+
+### Box-Cox Transformation
+
+Defined as the transformation of Y in which the residuals have maximize the adeherence to the normality.  A Box-Cox transformation can help the researcher in the definition of non linear functional forms.
+
+#### Calculating lambda
+
+<br>λ varies between –∞ and +∞.
+
+```{r}
+lambda_BC <- powerTransform(bebes$comprimento)
+lambda_BC
+```
+<br> λ = 2.659051 
+
+#### Insert λ from Box-Cox at the data set to estimate (Y*) at the data set
+<br> Creates Y*
+```{r}
+bebes$bc_comp <- (((bebes$comprimento ^ lambda_BC$lambda) - 1) / 
+                            lambda_BC$lambda)
+```
+
+#### Estimates a new model OLS with a dependent variable transformed by Box-Cox
+
+<br> Note that the formula input will not be Y ~ X, it will be Y* ~ X.
+
+```{r}
+model_non_lin_bebes <- lm(formula = bc_comp ~ idade, data = bebes)
+model_non_lin_bebes
+```
+<br> For the calculated Non-Linear model β = 4995.2 and α = 947.2. 
+
+```{r}
+summary(model_non_lin_bebes)
+```
+<br> At the descriptive Descriptive statistics we have that β and α are statistically significant, thus H0 is rejected and β is statistically significant for the explanation of the behavior of Y.  Repare que há um salto na qualidade do ajuste para o modelo não linear (R²).
+
+#### Comparando os parâmetros do modelo_linear com os do modelo_bc CUIDADO!!! OS PARÂMETROS NÃO SÃO DIRETAMENTE COMPARÁVEIS!
+
+The following formula does not work at the Rmarkdown.
+
+export_summs(model_lin_bebes, model_non_lin_bebes,
+             model.names = c("Modelo Linear","Modelo Box-Cox"),
+             scale = F, digits = 4)
+
+
+```{r}
+data.frame("R2 OLS" = round(summary(model_lin_bebes)$r.squared, 4),
+           "R2 BoxCox" = round(summary(model_non_lin_bebes)$r.squared, 4)) %>%
+  kable() %>%
+  kable_styling(bootstrap_options = "striped", position = "center", 
+                full_width = F, 
+                font_size = 30)
+```
+***Note that:*** The R2= 0.9615 for non-linear model and R2 = 0.9013 for the linear model  being in this case a better fit for the data set, if it is adequate to the normality adeherence.
+
+#### Shapiro-Francia to  model_non_lin_bebes
+
+**Warning:** The sf.test() test **does not allow** us to deal with data sets **bigger than 5000** observation, to solve it we can simply crack the code and increase the internal number by Click at the function > press F2
+```{r}
+sf.test(model_non_lin_bebes$residuals)
+
+```
+<br> For model_non_lin_bebes p-value >= 0,05, so H0 is accepted and is possible to afirm that the model adehere to the normality.
+
+#### Histogram for residuals model_non_lin_bebes
+```{r}
+bebes %>%
+  mutate(residuos = model_non_lin_bebes$residuals)%>%
+  ggplot(aes(x = residuos))+
+  geom_histogram(aes(y = ..density..),
+                 color ="magenta1" ,
+                 fill = "violet", bins = 30, alpha = 0.6 )+
+  stat_function(fun = dnorm, 
+                args = list(mean = mean(model_non_lin_bebes$residuals),
+                            sd = sd(model_non_lin_bebes$residuals)),
+                aes(color = "Curva Normal Teórica"),
+                size = 2) +
+  scale_color_manual("Legenda:",
+                     values = "#A43B76") +
+  labs(x = "Resíduos",
+       y = "Frequência") +
+  theme(panel.background = element_rect("white"),
+        panel.grid = element_line("lightblue1"),
+        panel.border = element_rect(NA),
+        legend.position = "bottom")
+```
+
+##### Behavior of the residuals as a function of the fitted values for model_lin_bebes, with emphasis on the distributions of the variables 
+```{r}
+bebes %>%
+  ggplot(aes(x = model_non_lin_bebes$fitted.values, y = model_non_lin_bebes$residuals)) +
+  geom_point(color = "gold", size = 2.5) +
+  geom_smooth(aes(color = "Fitted Values"),
+              method = "lm", formula = y ~ x, se = F, size = 2) +
+  geom_xsidedensity(aes(y = after_stat(density)),
+                    alpha = 0.5,
+                    size = 1,
+                    position = "stack") +
+  geom_ysidedensity(aes(x = after_stat(density)),
+                    alpha = 0.5,
+                    size = 1,
+                    position = "stack") +
+  xlab("Fitted Values") +
+  ylab("Resíduos") +
+  scale_color_tq() +
+  scale_fill_tq() +
+  theme_tq() +
+  theme(ggside.panel.scale.x = 0.4,
+        ggside.panel.scale.y = 0.4)
+```
+
+### Making predictions with models Linear and Non Linear
+
+What is the expected height for a baby 52 weeks old?
+
+####For linear model
+```{r}
+predict(object = model_lin_bebes,
+        data.frame(idade = 52),
+        interval = "confidence", level = 0.95)
+```
+####For Non linear model
+```{r}
+predict(object = model_non_lin_bebes,
+        data.frame(idade = 52),
+        interval = "confidence",
+        level = 0.95)
+```
+<br> This result is Y*, we need convert the value for Y to find the answer.
+
+###### Cálculus to obtain fitted values Y
+
+```{r}
+#Não podemos nos esquecer de fazer o cálculo para a obtenção do fitted value de Y (variável 'comprimento')
+(((54251.12   * 2.659051) + 1)) ^ (1 / 2.659051)
+```
+### Save the fitted values for both models
+
+```{r}
+bebes$yhat_linear <- model_lin_bebes$fitted.values
+bebes$yhat_model_non_lin_bebes <- (((model_non_lin_bebes$fitted.values*(lambda_BC$lambda))+
+                                    1))^(1/(lambda_BC$lambda))
+bebes%>% # For visualization
+  select(idade,comprimento,yhat_linear,yhat_model_non_lin_bebes) %>%
+  kable()%>%
+  kable_styling(bootstrap_options = "striped", font_size = 20, full_width = F)
+```
+
+### Models Adjust (fitted values vs. Real values)
+```{r}
+bebes %>%
+  ggplot()+
+  geom_smooth(aes(x = comprimento, y = yhat_linear, color = "OLS Linear"),#line for linear
+              method = "lm", se = F, formula = y ~ splines::bs(x, df = 5),
+              size = 1.5)+
+  geom_point(aes(x = comprimento, y = yhat_linear),#points captured for linear
+             color = "#FFBBED", alpha = 0.6, size = 1) +
+  geom_smooth(aes(x = comprimento, y = yhat_model_non_lin_bebes, color = "Non linear with Box-Cox"),#line for non linear
+              method = "lm", se = F, formula = y ~ splines::bs(x, df = 5),
+              size = 1.5) +
+  geom_point(aes(x = comprimento, y = yhat_model_non_lin_bebes), #points captured for non linear
+             color = "dodgerblue1", alpha = 0.6, size = 1) +
+  geom_smooth(aes(x = comprimento, y = comprimento), method = "lm", 
+              color = "gray30", size = 1.05,
+              linetype = "longdash") +
+  scale_color_manual("Modelos:", 
+                     values = c("aquamarine", "orchid")) +
+  labs(x = "Comprimento", y = "Fitted Values") +
+  theme(panel.background = element_rect("white"),
+      panel.grid = element_line("grey95"),
+      panel.border = element_rect(NA),
+      legend.position = "bottom")
+```
+<br> **To compare models is always need to do fitted values vs. actual values.** Note that, in this data set, the extreme values are what make the non-linear model have an better fit. 
+<br> 
+
+## Multiple non Linear Regression
+
+```{r}
+load(file = "empresas.RData")
+glimpse(empresas)
+```
+
+```{r}
+summary(empresas)
+```
+<br> About my data set: 
+<br> composed by Retorno de papeis das empresas , indicadores contábeis e financeiros. 
+
+Mais negociada o retorno na janela de tempo, em função de uma var X1 chamada disclosure(nota da agencia de classificação, maior maior o grau de transparencia), X2 endividadamento(percentual em relaçao ao patrimonio liq) , X3 posição dos ativos vezes 1milhão (em dólares), liquidez(do balanço patrimonial relaçao entre passivo;ativo circulante).  
+#### Estuding the correlations
+
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+
+empresas %>%
+  corr_plot(retorno, disclosure, endividamento, ativos, liquidez,
+            shape.point = 21,
+            col.point = "black",
+            fill.point = "#FDE725FF",
+            size.point = 2,
+            alpha.point = 0.6,
+            maxsize = 4,
+            minsize = 2,
+            smooth = TRUE,
+            col.smooth = "black",
+            col.sign = "red",
+            upper = "corr",
+            lower = "scatter",
+            diag.type = "density",
+            col.diag = "orchid",
+            pan.spacing = 0,
+            lab.position = "bl")
+```
+<br> Gráfico de Correlação : Mostra que a magnititue da correlação (a significancia em relaçao a magnit) em funçao do tamanho da amostra pode fazer com que a variável entre no modelo mas dependendo da correlaçao entre variáveis X, pode fazer com que a variavel seja excluida (multicolinearidade e heterocedasticidade). 
+
+<br> The values that displays "*" are statistically significant. Se for estisticamente significante fundo vermelho se não for fundo branco para.
+
+### Estimating a multiple model
+```{r}
+empresas %>%
+  kable() %>%
+  kable_styling(bootstrap_options = "striped", 
+                full_width = F, 
+                font_size = 22)
+```
+
+
+```{r}
+m_multi_empresas <- lm(formula = retorno ~ . - empresa,
+                       data = empresas )
+summary(m_multi_empresas)
+```
+
+<br> Note that β_endividamento is not significant at an confidence level of 5%.
+
+```{r}
+m_multi_empresas
+```
+<br> By the linear model m_multi_empresas, all variables are included even β_endividamento that is not significant at an confidence level of 95%. Whats is not appropriate. So is needed to do an STEPWISE PROCEDURE.
+
+#### STEPWISE PROCEDURE
+
+<br> K is the given by Chi-Square at 95%, where df = degree of freedom and lower.tail as a logical parameter that if TRUE (default), probabilities are P[X \le x]P[X≤x], otherwise, P[X > x]P[X>x]. K gives the best configuration, for multivariated models, at certain confidence level.
+
+```{r}
+#De onde vem o argumento k = 3.841459?
+qchisq(p = 0.05, df = 1, lower.tail = F)
+round(pchisq(3.841459, df = 1, lower.tail = F), 7)
+```
+
+```{r}
+step_empresas <- step(m_multi_empresas, k= 3.841459)
+```
+
+
+
+```{r}
+summary(step_empresas)
+```
+<br> for the Linear model the stepwise removed endividamento and disclosure.
+
+## comparing models
+export_summs(step_empresas, scale = F, digits = 5)
+
+#Parâmetros reais do modelo com procedimento Stepwise
+
+```{r}
+confint(step_empresas, level = 0.95)
+```
+
+```{r}
+plot_summs(step_empresas, colors = "#440154FF")
+```
+<br>Range β variates a lot between ativos and liquidez, this turns difficult to compare results so is needed to standardize the vars.
+
+#### Standardize Parameters
+```{r}
+plot_summs(step_empresas, scale = TRUE, colors = "#440154FF")
+```
+
+<br> From this chart is possible note that liquidez has a bigger relative importance to explain the behavior of retorno.
+
+#### Comparando ICs dos betas dos modelos sem e com procedimento Stepwise
+```{r}
+
+plot_summs(m_multi_empresas, step_empresas, scale = TRUE, plot.distributions = TRUE,
+           inner_ci_level = .95, colors = c("#FDE725FF", "#440154FF"))
+```
+<br> The model with stepwise remains just 2 variables.
+
+#### Adeherence to normality SHAPIRO-FRANCIA  
+```{r}
+sf.test(step_empresas$residuals)
+```
+<br> For model_non_lin_bebes p-value >= 0,05, so H0 is accepted and is possible to afirm that the model adehere to the normality.
+
+##### Histogram
+
+```{r}
+
+empresas %>%
+  mutate(residuos = step_empresas$residuals) %>%
+  ggplot(aes(x = residuos)) +
+  geom_histogram(aes(y = ..density..), 
+                 color = "white", 
+                 fill = "aquamarine", 
+                 bins = 30,
+                 alpha = 0.6) +
+  stat_function(fun = dnorm, 
+                args = list(mean = mean(step_empresas$residuals),
+                            sd = sd(step_empresas$residuals)),
+                size = 2, color = "grey30") +
+    scale_color_manual(values = "grey50") +
+    labs(x = "Resíduos",
+         y = "Frequência") +
+  theme_bw()
+
+```
+
+### Box-Cox Transformation
+
+##### Calculating lambda
+```{r}
+lambda_emp <- powerTransform(empresas$retorno) #input original data set $ y
+lambda_emp
+```
+<br> λ =  -0.02256414 
+
+#### Insert λ from Box-Cox at the data set to estimate (Y*) at the data set
+
+```{r}
+empresas$bcretorno <- (((empresas$retorno ^ lambda_emp$lambda)-1)/
+                         (lambda_emp$lambda))
+empresas %>%
+  select(empresa, retorno, bcretorno, everything()) %>%
+  kable() %>%
+  kable_styling(bootstrap_options = "striped", 
+                full_width = F, 
+                font_size = 18)
+
+```
+#### Estimates a new model
+
+```{r}
+model_bc <- lm(formula= bcretorno ~ . -empresa - retorno, data = empresas)
+model_bc
+```
+
+```{r}
+summary(model_bc)
+```
+
+#Stepwise for new model
+
+```{r}
+
+step_model_bc <- step(model_bc, k = 3.841459)
+
+```
+
+```{r}
+summary(step_model_bc)
+#Note que a variável 'disclosure' acaba voltando ao modelo na forma funcional não linear!
+```
+#### Shapiro-Francia step_modelo_bc
+
+```{r}
+sf.test(step_model_bc$residuals)
+```
+<br> Adeherence to the normality
+
+##### Histogram
+
+```{r}
+empresas %>%
+    mutate(residuos = step_model_bc$residuals) %>%
+    ggplot(aes(x = residuos)) +
+    geom_histogram(aes(y = ..density..),
+                   color = "white",
+                   fill = "#287D8EFF",
+                   bins = 30,
+                   alpha = 0.6) +
+    stat_function(fun = dnorm, 
+                  args = list(mean = mean(step_model_bc$residuals),
+                              sd = sd(step_model_bc$residuals)),
+                  size = 2, color = "grey30") +
+    scale_color_manual(values = "grey50") +
+    labs(x = "Resíduos",
+         y = "Frequência") +
+    theme_bw()
+
+```
+#Resumo dos dois modelos obtidos pelo procedimento Stepwise (linear e com Box-Cox) Função 'export_summs' do pacote 'jtools'
+
+export_summs(step_empresas, step_modelo_bc,
+             model.names = c("Modelo Linear","Modelo Box-Cox"),
+             scale = F, digits = 6)
+
+#Parâmetros reais do modelo com procedimento Stepwise e Box-Cox
+
+```{r}
+confint(step_model_bc,level = 0.95)
+```
+
+```{r}
+plot_summs(step_model_bc, colors = "#287D8EFF")
+```
+
+```{r}
+#Parâmetros padronizados
+plot_summs(step_model_bc, scale = TRUE, plot.distributions = TRUE,
+           inner_ci_level = .95, colors = "#287D8EFF")
+```
+#### Comparando os ICs do betas dos modelos sem e com Transformação de Box-Cox
+```{r}
+
+plot_summs(step_empresas, step_model_bc, scale = T, plot.distributions = TRUE,
+           inner_ci_level = .95, colors = c("#440154FF", "#287D8EFF"))
+```
+#### Predictions
+
+<br> What is the value of retorno, average, to disclosure = 50, liquidez = 14 and ativo = 4000, ceteris paribus?
+
+```{r}
+predict(object = step_model_bc, 
+        data.frame(disclosure = 50, 
+                   liquidez = 14, 
+                   ativos = 4000),
+        interval = "confidence", level = 0.95)
+```
+
+```{r}
+#Não podemos nos esquecer de fazer o cálculo para a obtenção do fitted
+#value de Y (retorno)
+(((3.702015 * -0.02256414) + 1)) ^ (1 / -0.02256414)
+```
+#### Saving the fitted values
+```{r}
+empresas$yhat_step_empresas <- step_empresas$fitted.values
+empresas$yhat_step_model_bc <- (((step_model_bc$fitted.values*(lambda_emp$lambda))+
+                                    1))^(1/(lambda_emp$lambda))
+```
+
+#### View dataset model step_empresas and step_modelo_bc
+
+```{r}
+empresas %>%
+  select(empresa, retorno, yhat_step_empresas, yhat_step_model_bc) %>%
+  kable() %>%
+  kable_styling(bootstrap_options = "striped", 
+                full_width = F, 
+                font_size = 22)
+```
+
+
+#### Predicted Model Adjust dos modelos: Predicted Values (fitted values) vs. Actual Values
+
+```{r}
+
+empresas %>%
+  ggplot() +
+  geom_smooth(aes(x = retorno, y = yhat_step_empresas, color = "Stepwise"),
+              method = "lm", se = F, formula = y ~ splines::bs(x, df = 5), size = 1.5) +
+  geom_point(aes(x = retorno, y = yhat_step_empresas),
+             color = "lightpink3", alpha = 0.6, size = 2) +
+  geom_smooth(aes(x = retorno, y = yhat_step_model_bc, color = "Stepwise Box-Cox"),
+              method = "lm", se = F, formula = y ~ splines::bs(x, df = 5), size = 1.5) +
+  geom_point(aes(x = retorno, y = yhat_step_model_bc),
+             color = "blue", alpha = 0.6, size = 2) +
+  geom_smooth(aes(x = retorno, y = retorno), method = "lm", formula = y ~ x,
+              color = "grey30", size = 1.05,
+              linetype = "longdash") +
+  scale_color_manual("Modelos:", 
+                     values = c("lightpink3", "blue")) +
+  labs(x = "Retorno", y = "Fitted Values") +
+  theme(panel.background = element_rect("white"),
+        panel.grid = element_line("grey95"),
+        panel.border = element_rect(NA),
+        legend.position = "bottom")
+```
+<br> Even that the difference between R2 models is small, the non-linear model(blue line) provides a better construction of ICs to predict the behavior of Y, than a linear model (lightpink3).

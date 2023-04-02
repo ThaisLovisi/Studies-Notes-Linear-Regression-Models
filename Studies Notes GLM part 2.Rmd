@@ -1,0 +1,590 @@
+---
+title: "Studies Notes GLM part 2"
+author: "Thais Lovisi"
+date: "2023-02-23"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#### R Setup
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+pacs <- c("plotly","tidyverse","ggrepel","fastDummies","knitr","kableExtra",
+             "splines","reshape2","PerformanceAnalytics","correlation","see",
+             "ggraph","psych","nortest","rgl","car","ggside","tidyquant","olsrr",
+             "jtools","ggstance","magick","cowplot","emojifont","beepr","Rcpp",
+             "equatiomatic")
+
+options(rgl.debug = TRUE)
+
+if(sum(as.numeric(!pacs %in% installed.packages())) != 0){
+  instalador <- pacs[!pacs %in% installed.packages()]
+  for(i in 1:length(instalador)) {
+    install.packages(instalador, dependencies = T)
+    break()}
+  sapply(pacs, require, character = T) 
+} else {
+  sapply(pacs, require, character = T) 
+}
+
+```
+
+# REGRESSÃO LINEAR SIMPLES 
+
+## Introduction
+
+In linear regression, the aim is to model the relationship between a dependent variable and one or more explanatory variables. In simple linear regression, there is just one explanatory variable.
+
+<br>When use linear regression ?
+<br>   When the outcome of interest is on some sort of continuous scale (for example, quantity, money, height, weight). 
+
+#### Knowing my data Example 1
+```{r}
+load(file = "tempodist.RData")
+tempodist %>%
+  kable() %>%
+  kable_styling(bootstrap_options = "striped",
+                full_width = F,
+                font_size = 22)
+
+```
+```{r}
+glimpse(tempodist)
+```
+The data set is composed by time and distance added in integer format, both quantitative data.
+
+```{r}
+#Gráfico de dispersão básico
+tempo <- c(tempodist[[1]])
+distancia <- c(tempodist[[2]])
+plot(tempo ~ distancia)
+```
+
+#### GRÁFICO DE DISPERSÃO
+
+```{r}
+# linha 3 nuvem de pontos, the color is given in hexadecimal scale
+# Linha de tendência
+ggplotly(
+  ggplot(tempodist, aes(x = tempo, y = distancia))+
+  geom_point(color = "#E044A7", size = 2.5)+ 
+  geom_smooth(aes(color = "Fitted Values"),
+                method = "lm", formula = y ~ x, se = F, size = 1) + 
+    labs(x = "Distância",
+         y = "Tempo",
+         title = paste("R²:",
+                       round(((cor(tempodist$tempo, tempodist$distancia))^2),4))) +
+    scale_color_manual("Legenda:",
+                       values = "grey50") +
+    theme_classic()
+)
+
+
+```
+## Modeling a Simple Linear Regression model
+
+### Model Estimation Methods
+
+Estimation Methods are methods through which Regression Analysis is conducted to generate a linear equation based on the data points given on a graph. Generally used estimation methods include Ordinary Least Squares (OLS), Method of Moments (MoM), and Maximum Likelihood Estimate (MLE).
+
+#### Estimation of the Linear Regression Model by Ordinary Least Squares
+
+What are the rules to proceed the Parameters Estimation (Parameters Estimation Criteria)? 
+	We have 2 survival rules
+				1) Sum of errors equal to zero see why in (https://thestatsgeek.com/2020/03/23/the-mean-of-residuals-in-linear-regression-is-always-zero/)
+				2) Sum of squared errors being the minimum possible
+							
+				Parameters α and β can be estimated by ordinary least squares (OLS) , in which the sum of the squares of the error terms is minimized.
+
+
+
+```{r}
+# Estimates the model and generates a list with parameters
+model_timedist <- lm(formula = tempo ~ distancia, data = tempodist)
+
+# to observe such parameters we can call summary and it will give us the result at the console
+summary(model_timedist)
+
+```
+
+For the model estimation we have that the parameters α = 5.8784 and β = 1.419. The β for the distance is statiscally significant at 95%. However the Intercept(α) is not significant.See a more detailed table of results bellow:
+
+```{r}
+summ(model_timedist, confint = T, digits = 4, ci.width = .95)
+# to export the table do... export_summs(model_timedist, scale = F, digits = 4)
+
+```
+
+As mentioned above β is statiscally significant, however the Intercept(α) is not. So what should I do?
+
+<br> O fato de α não ser estatísticamente diferente de 0 não permite que o mesmo seja removido igualanlo a 0. Tal procedimento é um erro ERRO pois eliminar o intercepto quando este não for estatisticamente significante gera o viés que pode impactar no beta, e impacta na dispersão de pontos. O prof. deu um exemplo para mostrar essas implicações de quando fazemos isto  e nomeou de modelo_errado. 
+
+#### Model View with viewer
+
+Is necessary to generate the equation that fits to this model.
+
+```{r}
+
+#função 'extract_eq' do pacote 'equatiomatic'
+extract_eq(model_timedist, use_coefs = T) %>% 
+  kable() %>%
+  kable_styling(bootstrap_options = "striped",
+                full_width = F,
+                font_size = 28
+                )
+
+```
+
+#### Save fitted value and error in an additional column
+```{r}
+tempodist$yhat <- model_timedist$fitted.values
+tempodist$erro <- model_timedist$residuals 
+```
+
+```{r}
+tempodist %>%
+  select(tempo, distancia, yhat, erro) %>%
+  kable() %>%
+  kable_styling(bootstrap_options = "striped", 
+                full_width = F, 
+                font_size = 22)
+```
+
+##### Error
+For our assumed equation  y = mx + c represents the expected mean value of y over many observations of x. For a specific single observation of x, we do not expect y to be precisely on the tendency line because each individual observation will have an associated error term either above or below the expected line. We can determine this error term existent in the fitted model by calculating the difference between the real value of y and the one predicted by our model yhat. For example, at  x = 8, our modeled value of yhat is 17.229, but the real value is 15, producing an error of 2,229. These errors are known as the residuals of our model. The residuals for our data set are illustrated at the following chart, as the red line segments.
+
+
+```{r}
+ggplotly(
+  ggplot(tempodist, aes(x = distancia, y = tempo)) +
+    geom_point(color = "#39568CFF", size = 2.5) +
+    geom_smooth(aes(color = "Fitted Values"),
+                method = "lm", formula = y ~ x, se = F, size = 2) +
+    geom_hline(yintercept = 30, color = "grey50", size = .5) +
+    geom_segment(aes(color = "Ychapéu - Ymédio", x = distancia, xend = distancia,
+                     y = yhat, yend = mean(tempo)), size = 0.7, linetype = 2) +
+    geom_segment(aes(color = "Erro = Y - Ychapéu", x = distancia, xend = distancia,
+                     y = tempo, yend = yhat), size = 0.7, linetype = 3) +
+    labs(x = "Distância",
+         y = "Tempo") +
+    scale_color_manual("Legenda:",
+                       values = c("red", "grey50", "green")) +
+    theme_classic()
+)
+
+```
+##### Measuring the fit of the model	
+
+One way to measure good is your model at explaining the outcome is to compare it to a situation where you have no input and no model at all. In this situation, all you have is your outcome values, which can be considered a random variable with a mean and a variance. In of this exercise the horizontal line representing the mean of y as our ‘random model’‍, and we can calculate the residuals around the mean (green line). 
+
+	Note that the green line is at the chart above is (ychapeu − ymedio) that represents the deviation of values of the regression model for each observation in relation to the average.
+	
+#### Coefficient confidence (R2)
+
+```{r}
+R2 <- (sum((tempodist$yhat - mean(tempodist$tempo))^2))/
+      ((sum((tempodist$yhat - mean(tempodist$tempo))^2)) + (sum((tempodist$erro)^2)))
+print(paste0('R2 = ', round(R2, digits = 3)))
+```
+The R2 adjusted is the square correlation
+```{r}
+# For Adjusted R2
+cor(tempodist[1:2])
+```
+##### Determining the Best Fit
+To calculate the best fit linear model for our data we use the lm() function. Once we have run it, the model and all the details will be saved in the work session for further investigation or use. This tells us that that our best fit model (the one that minimizes the average squares of the residuals) is: 
+
+```{r}
+#auxiliar model with R² = 100% (para fins didáticos)
+#note que aqui o yhat é a variável dependente
+modelo_auxiliar <- lm(formula = yhat ~ distancia,
+                   data = tempodist)
+summary(modelo_auxiliar)
+```
+
+```{r}
+#chart showing what would be the perfect fit with R2 = 100%
+my_plot <-
+  ggplot(tempodist, aes(x = distancia, y = yhat)) +
+  geom_point(color = "#39568CFF", size = 5) +
+  geom_smooth(aes(color = "Fitted Values"),
+              method = "lm", formula = y ~ x, se = F, size = 2) +
+  labs(x = "Distância",
+       y = "Tempo") +
+  scale_color_manual("Legenda:",
+                     values = "grey50") +
+  theme_cowplot()
+my_plot
+
+```
+However the case of study has an R2 = 81,9%, lets come back to it and compare ehat happens at different confidence levels.
+
+#### confidence interval
+
+###### At confidence level of 90% :
+
+```{r}
+confint(model_timedist, level = 0.90)  # siginificância 10%
+```
+Note that the interval at 10% of significancy IC = [-2.5497025, 14.306459], contains α = 0.
+
+
+```{r}
+
+ggplotly(
+  ggplot(tempodist, aes(x = distancia, y = tempo)) +
+    geom_point(color = "#8470FF") +
+    geom_smooth(aes(color = "Fitted Values"),
+                method = lm, formula = y ~ x,
+                level = 0.90) + #cria tunel nivel sig 90%
+    labs(x = "Distance" ,
+         y = "Tempo") +
+    scale_color_manual("Legenda:",
+                       values = "grey50") +
+    theme_bw()
+  
+)
+```
+###### At confidence level of 95%:
+
+```{r}
+confint(model_timedist, level = 0.95)
+```
+Note that the interval at 5% of significancy IC = [-4.5731877, 16.329944], contains α = 0.
+
+```{r}
+ggplotly(
+  ggplot(tempodist, aes(x = distancia, y = tempo)) +
+    geom_point(color = "#0000FF") +
+    geom_smooth(aes(color = "Fitted Values"),
+                method = "lm", formula = y ~ x,
+                level = 0.95) +
+    labs(x = "Distância",
+         y = "Tempo") +
+    scale_color_manual("Legenda:",
+                       values = "grey50") +
+    theme_bw()
+)
+
+```
+###### At confidence level of 99%:
+
+```{r}
+confint(model_timedist, level = 0.99)
+```
+Note that the interval at 1% of significancy IC = [-9.3293361, 21.086093], contains α = 0.
+
+```{r}
+ggplotly(
+  ggplot(tempodist, aes(x = distancia, y = tempo)) +
+    geom_point(color = "#00BFFF") +
+    geom_smooth(aes(color = "Fitted Values"),
+                method = "lm", formula = y ~ x,
+                level = 0.99) +
+    labs(x = "Distância",
+         y = "Tempo") +
+    scale_color_manual("Legenda:",
+                       values = "grey50") +
+    theme_bw()
+)
+
+```
+
+###### At confidence level of  99.99%:
+
+```{r}
+confint(model_timedist, level = 0.9999)
+```
+
+Note that the interval at 99,99% of confidence level IC = [-26.3918115, 38.14857], contains α = 0.
+```{r}
+ggplotly(
+  ggplot(tempodist, aes(x = distancia, y = tempo)) +
+    geom_point(color = "#40E0D0") +
+    geom_smooth(aes(color = "Fitted Values"),
+                method = "lm", formula = y ~ x,
+                level = 0.9999) +
+    labs(x = "Distância",
+         y = "Tempo") +
+    scale_color_manual("Legenda:",
+                       values = "grey50") +
+    theme_bw()
+)
+
+```
+A 99.9% beta contém o 0, logo não e significante. Ou seja neste exemplo este nivel de significancia não pode ser usado.
+
+#### Lets try predict something
+```{r}
+#Fazendo predições em modelos OLS - e.g.: qual seria o tempo gasto, em média, para
+#percorrer a distância de 25km?
+answer1 <- predict(object = model_timedist,
+        data.frame(distancia = 25))
+print(paste0("The average time spent to travel 25km was ", answer1))
+```
+
+```{r}
+#Caso se queira obter as predições com os IC
+answer2 <- predict(object = model_timedist,
+        data.frame(distancia = 25),
+        interval = "confidence", level = 0.95)
+print(paste0("The average time spent to travel 25km was ", answer2[[1]], " with a confidence interval of ", answer2[[2]], " to ", answer2[[3]] ))
+```
+
+#### New modeling tatics for solve the issue α = 0
+
+As we could notice during this exercise α = 0 for all confidences interval tested.
+
+<br> No caso de o α não ser signinficante o caminho correto é aumentar o tamanho da amostra?
+Se for possivel sim, mas se você não conseguir aumentar o tamanho da amostra não há problema algum a análise pode continuar se o β for significante e o α  não.
+
+So lets solve it by increasing the sample size
+```{r}
+# turn to triple data set
+timedist_repeat <- tempodist %>%
+  slice(rep(1:n(), each=3))
+
+# calculate the model
+modelo_timedist_repeat<- lm(formula = tempo ~ distancia,
+                        data = timedist_repeat)
+# Descriptive stat
+summary(modelo_timedist_repeat)
+```
+Note that after increase the number of samples the α is now significant
+
+```{r}
+# Calculating the confidence interval
+confint(modelo_timedist_repeat, level = 0.95)
+```
+Now with bigger sample we have an IC = [0.9158438, 10.840913] to α, what means that it does not contains 0 value anymore.
+
+```{r}
+ggplotly(
+  ggplot(timedist_repeat, aes(x = distancia, y = tempo)) +
+    geom_point(color = "#0000FF") +
+    geom_smooth(aes(color = "Fitted Values"),
+                method = "lm", formula = y ~ x,
+                level = 0.95) +
+    labs(x = "Distância",
+         y = "Tempo",
+         title = "Chart with bigger sample at 95% of confidence level") +
+    scale_color_manual("Legenda:",
+                       values = "grey50") +
+    theme_bw()
+)
+
+```
+Note that happened an narrowing at the width of the interval.
+
+
+# Multiple linear regression
+
+ The methodology for multiple linear regression is similar to the simple linear regression, but with increased dimensionality. At the Multiple linear regression our inputs are a set of p variables x1, x2,…,xp. So we will have a equation:
+<br> y=α+β_1 x_1+β_2 x_2+…+β_p x_p
+
+```{r}
+load(file = "paises.RData")
+glimpse(paises)
+```
+The data base for this exercise is composed by 50 paises and its data related to:
+<br> cpi = The Corruption Perceptions Index (CPI) is an index which ranks countries by their perceived levels of public sector corruption.
+<br> idade = average age of the billionaries( in dolar) for the respective country.
+<br> horas = average of number of works hours, related to the economically active population for the respective country.
+
+```{r}
+summary(paises)
+```
+```{r}
+#Chart 3D with scatterplot
+scatter3d(cpi ~ idade + horas,
+          data = paises,
+          surface = F,
+          point.col = "#440154FF",
+          axis.col = rep(x = "black",
+                         times = 3))
+```
+##### Correlations at MLR
+
+Structuring a diagram that displays the inter-relation between variables, as well the correlation magnitude between them.
+
+```{r}
+paises %>%
+  correlation( method = "pearson") %>%
+  plot()
+```
+
+By the diagram is possible to verify an strong positive correlation between idade and cpi, a moderate negative correlation between idade and horas, and a strong negative correlation between horas and cpi.
+
+```{r}
+#distribuições das variáveis, scatters, valores das correlações e suas  respectivas significâncias
+
+chart.Correlation((paises[2:4]), histogram = TRUE)
+```
+
+<br>**** Atenção a matriz de correlações dá o valor de R não de R2**** For the example the R2 is given by -0,44^2 = R2 = 0,1936
+
+##### Generating a Multiple LR model 
+```{r}
+model_countries <- lm(formula = cpi ~ . -pais, #formula considera todas as variaveis exceto pais
+                      data = paises)
+```
+##### Extracting parameters from the model
+```{r}
+summary(model_countries)
+```
+
+<br> More organized results, togheter with confidency intervals can be displayed in the following line:
+
+```{r}
+summ(model_countries, confint = T, digits = 5, ci.width = .95)
+```
+##### Adding fitted values at the data base
+
+```{r}
+paises$cpi_fitted <- model_countries$fitted.values
+```
+
+##### 3D Chart with fitted values
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+scatter3d(cpi ~ idade + horas,
+          data = paises,
+          surface = T, fit = "linear",
+          point.col = "#00000FFF",
+          axis.col = rep(x = "black",
+                         times = 3))
+```
+
+
+## Dummy Vars
+
+**** What happens if my variables are Qualitative ? ****
+
+For don`t attribute to them arbitrary values and properly input them at the model is necessary convert them on Dummy variable.
+
+#### One-hot encoding for 2 categories
+It will generate only one Dummy var D1
+```{r}
+load (file = "corrupcao.RData")
+glimpse(corrupcao)
+```
+
+```{r}
+print(unique(corrupcao[[3]]))
+```
+The frequency table taking as reference the column 3 (regiao).
+
+```{r}
+table(corrupcao$regiao)
+```
+Univariate (in this case) Statistics with summary.
+```{r}
+summary(corrupcao)
+```
+```{r}
+#Exploração visual do Corruption Perception Index para cada um dos países
+corrupcao %>%
+  group_by(regiao) %>%
+  mutate(rotulo = paste(pais, cpi)) %>%
+  ggplot(aes(x = as.numeric(regiao), y = cpi, label = rotulo)) +
+  geom_point(aes(x = regiao, y = cpi), color = "#FDE725FF", alpha = 0.5, size = 5) +
+  scale_color_manual("Legenda:",
+                     values = "#440154FF") +
+  labs(x = "Região",
+       y = "Corruption Perception Index") +
+  geom_text_repel() +
+  theme_bw()
+```
+Average of cpi per region added to the chart in the next chunck:
+
+```{r}
+
+#Exploração visual do Corruption Perception Index para cada um dos países, com valores médios por região
+corrupcao %>%
+  group_by(regiao) %>%
+  mutate(cpi_medio = mean(cpi, na.rm = TRUE)) %>%
+  mutate(rotulo = paste(pais, cpi)) %>%
+  ggplot(aes(x = as.numeric(regiao), y = cpi, label = rotulo)) +
+  geom_point(aes(x = regiao, y = cpi), color = "#FDE725FF", alpha = 0.5, size = 5) +
+  geom_line(aes(x = regiao, y = cpi_medio, 
+                group = 1, color = "CPI Médio"), linewidth = 1.5) +
+  scale_color_manual("Legenda:",
+                     values = "#440154FF") +
+  labs(x = "Região",
+       y = "Corruption Perception Index") +
+  geom_text_repel() +
+  theme_bw() +
+  theme(legend.position = "bottom")
+```
+Lets start convert the variable "regiao" into Dummies. The following code does:
+<br> a) stabilishes dummies to represent each attribute for "region" at the data set
+<br> b)removes the original variable that was converted into dummy. (remove_selected_columns = T)
+<br> c) stabilishes as coategory of reference the one that is most frequent, remove_most_frequent_dummy = T.
+
+```{r}
+corrupcao_dummies <- dummy_columns(.data = corrupcao,
+                                   select_columns = "regiao",
+                                   remove_selected_columns = T,
+                                   remove_most_frequent_dummy = T)
+
+```
+Note that Europe was used as reference and was Removed from the data set. If I wanted keep it i could just make remove_most_frequent_dummy = F, but it could cause mistake. At the Data set all data with 0 on it makes reference to the Europe region.
+
+##### Generating the regression model with the dummy vars
+
+```{r}
+model_dummy1 <- lm(cpi~.-pais,
+                   data = corrupcao_dummies)
+summary(model_dummy1)
+```
+<br>`regiao_EUA e Canadá` wasnt statiscally significant, this indicates that it doesn`t have an mean difference from the sampling point of view, between cpi from Europe (represented by Intercept(A.K.A alpha)) and "EUA e Canadá".
+
+<br> Note that the F and R value changed as well.
+
+```{r}
+#Plotando o modelo_corrupcao_dummies de forma interpolada
+my_plot3 <- 
+  corrupcao %>%
+  mutate(rotulo = paste(pais, cpi)) %>%
+  ggplot(aes(x = as.numeric(regiao), y = cpi, label = rotulo)) +
+  geom_point(color = "#66FFFF", alpha = 0.5, size = 4) +
+  stat_smooth(aes(color = "Fitted Values"),
+              method = "lm", 
+              formula = y ~ bs(x, df = 4),
+              se = T) +
+  labs(x = "Região",
+       y = "Corruption Perception Index") +
+  scale_x_discrete(labels = c("1" = "América do Sul", 
+                              "2" = "Oceania", 
+                              "3" = "Europa", 
+                              "4" = "EUA e Canadá", 
+                              "5" = "Ásia")) +
+  scale_color_manual("Legenda:",
+                     values = "#FF99FF") +
+  geom_text_repel() +
+  theme_bw() +
+  theme(legend.position = "bottom")
+my_plot3
+
+```
+##### Adicionando GIF and Beep 
+```{r}
+ggsave("my_plot3.png")
+my_plot3 <- image_read("my_plot3.png") #função do pacote 'magick'
+
+gif <- image_read("https://media.giphy.com/media/EyqAY5E3IcwAD3lB3y/giphy.gif")
+
+frames <- image_composite(my_plot3, gif, offset = "+880+30")
+
+animation <- image_animate(frames, fps = 10) #função do pacote 'magick'
+image_scale(animation, "x550")
+beep("treasure")
+```
+
+```{r}
+```
+
+```{r}
+```
